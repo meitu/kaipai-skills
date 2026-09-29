@@ -1,41 +1,45 @@
 # CLI 接入、参数准备与登录
 
-首次执行本 Skill 时读取本文件。使用当前宿主的终端能力；CLI 需要 Node.js 20.3+、npm 和网络访问，本地视频校验还需要 `ffprobe`。
+首次执行本 Skill 时读取本文件。使用当前宿主的终端能力；CLI 需要 Node.js 20.3+；缺失时的安装需要 npm 和网络访问，远端业务也需要网络，CLI 内部的视频校验使用 npm 随包分发的 `ffprobe`，无需单独安装；Agent 不单独探测媒体或预查该依赖，遇到 CLI 报错再处理。
 
-## 解析入口
+## 首次准备 CLI
 
-1. macOS/Linux 使用 `command -v kaipai`，Windows PowerShell 使用 `Get-Command kaipai.cmd` 解析入口，后续始终调用同一入口。文档中的 `kaipai` 代表该入口；Windows 替换为 `kaipai.cmd`，路径包含空格时交给宿主的参数数组调用能力处理。
-2. 检查 `--version` 和本次命令的 `--help`，确认符合正文声明的兼容范围及需要的文件参数；远程素材还需检查 `download --help`。按需使用参数文件或独立预检时，再确认对应选项受支持。版本按数值比较，不把预发布版本当稳定版。
-3. 入口缺失、版本不匹配或命令不可用时停止业务提交，明确告知用户：“此 Skill 依赖 npm 包 `meitu-kaipai-cli`，单独导入 Skill 不会安装 CLI；请先按下面的步骤安装兼容版本。”已存在兼容入口时直接复用，无需重复安装。
-
-## 独立使用时安装 CLI
-
-安装命令使用正文声明的已验证目标版本（当前为 `0.1.8`）。默认提供全局安装方式，使宿主终端可以直接运行 `kaipai`：
+首次在当前运行环境使用本 Skill 时，先告知将检查 CLI 并在缺失时全局安装，然后调用随包的 `scripts/ensure-cli.mjs`：
 
 ```bash
-npm i -g meitu-kaipai-cli@0.1.8
-kaipai --version
-kaipai --help
+node "<当前 Skill 目录的绝对路径>/scripts/ensure-cli.mjs"
 ```
 
-如果用户选择仅在项目内安装，在该项目目录执行：
+将占位路径替换为实际 Skill 目录，不依赖当前工作目录或本仓库。准备 CLI 是本 Skill 默认流程，已有任务授权下无需另问是否安装；宿主要求的网络／文件写入审批仍按实际提示处理。用户明确禁止安装或只允许项目内安装时遵循其限制，不运行默认安装流程。
+
+脚本行为：
+
+1. 检查 Node.js 20.3+，优先验证 PATH 中的 `kaipai`；Windows 查找 `kaipai.cmd`／`kaipai.exe`。兼容版本直接复用，检查 `--version` 和 `--help`，不调用 npm 安装。
+2. PATH 中没有 CLI 时检查 npm，并查询全局 prefix；全局目录中已有入口时直接验证并复用，避免因 PATH 未生效重复安装。
+3. CLI 缺失时执行 `npm install --global --include=optional meitu-kaipai-cli@0.1.11 --no-fund --no-audit`，使用现有 npm registry 和 prefix，安装后重新验证入口。不会自动安装 Node.js 或 npm；`ffprobe` 由 CLI 的 npm 依赖提供，安装时不要省略 optional dependencies。
+4. 已有 CLI 不兼容、无法执行或 help 检查失败时停止，不自动升级／降级覆盖。根据返回的版本和入口说明冲突；用户明确同意替换后才安装正文声明的目标版本并重跑脚本。
+5. 单次探测最多 15 秒，安装最多 180 秒。安装失败、超时或权限拒绝时停止业务提交，按真实错误处理，不循环安装、不添加 sudo、不改 registry，也不改用 `@latest`。版本不存在时核实发布来源。
+
+stdout 返回一个 JSON 对象；进度写入 stderr。仅退出码 0 且 `ok: true` 表示准备完成；`status` 为 `ready` 或 `installed`，`version` 为实际版本。保存 `entry.command` 与 `entry.args`，后续通过独立参数数组调用：`entry.command` + `entry.args` + 业务参数，不把 JSON 拼接为 shell 字符串。Windows 的 npm `.cmd` 入口通过其标准 npm 包布局解析为 Node 脚本执行，不使用 shell；不支持的自定义启动器会明确报错。
+
+文档中的 `kaipai` 均代表该已验证入口；即使全局 bin 不在 PATH 中，也沿用返回的绝对入口，无需修改 shell 配置。准备成功后按正文示例调用业务命令；选项用法不明确时再查询相应 `--help`，下载选项不明确时查询 `download --help`。同一环境、同一任务内复用准备结果；环境变化或入口失效时重新检查，不用“安装过”标记代替验证。
+
+## 用户指定已有或项目内 CLI
+
+用户已指定已有入口，或明确选择并完成项目内安装时，仅验证该入口，不执行全局安装：
 
 ```bash
-npm i meitu-kaipai-cli@0.1.8
-./node_modules/.bin/kaipai --version
-./node_modules/.bin/kaipai --help
+node "<当前 Skill 目录的绝对路径>/scripts/ensure-cli.mjs" --cli "<已有 CLI 的绝对路径>"
 ```
 
-项目内安装不会把 `kaipai` 加入全局 PATH。此时将项目内 `node_modules/.bin/kaipai` 的绝对路径作为后续 CLI 入口；Windows PowerShell 使用 `node_modules\.bin\kaipai.cmd`，检查命令相应替换为 `& .\node_modules\.bin\kaipai.cmd --version` 和 `--help`。全局安装在 Windows 下同样使用 `kaipai.cmd`。
-
-准备完成后按“解析入口”重新检查版本与本次命令。业务请求本身不代表安装或升级授权；用户已要求准备环境时执行相应安装，否则提供安装命令。若 registry 找不到该精确版本，告知安装失败并核实可用来源，不自行改用 `@latest`、添加 sudo、修改 registry 或循环安装。
+项目内安装命令为 `npm install --include=optional meitu-kaipai-cli@0.1.11`，只在用户指定的项目目录执行。其入口为该项目的 `node_modules/.bin/kaipai`，Windows 为 `node_modules\.bin\kaipai.cmd`。`--cli` 路径不存在或不兼容时直接失败，不回退安装。
 
 ## 按需查询参数
 
-- 先用 `kaipai <命令> --help` 查询当前入口的选项和用法，结合正文中的最小请求示例构造输入。
-- help 未说明参数文件的字段、嵌套结构、互斥条件或媒体限制时，运行 `kaipai contracts`。它无需登录或网络，返回 JSON 描述数组；用 JSON 解析工具按 `argvPrefix` 筛选当前命令（例如 `["mixed-cut", "generate"]`），只读取相关条目，无需反复加载整份输出。
+- 默认按正文的最小请求示例构造输入；选项用法不明确或 CLI 返回参数错误时，再用 `kaipai <命令> --help` 查询。
+- 需要构造参数文件或复杂答案，而 help 未说明字段及嵌套结构时，运行 `kaipai contracts`。不要为预先判断素材是否符合限制而查询契约。它无需登录或网络，返回 JSON 描述数组；用 JSON 解析工具按 `argvPrefix` 筛选当前命令（例如 `["mixed-cut", "generate"]`），只读取相关条目，无需反复加载整份输出。
 - 描述中的 `fields / inputInteraction / resourceRules / capabilities` 分别说明字段、输入关系、媒体限制和预检能力。描述本身不是请求 JSON；不能从 flag 名推测 JSON 字段或类型。采用参数文件时，固定工具使用文件数组；字幕和混剪使用有序 `attachmentSources` 数组，每项为 `kind / source: "file" / value`；生成请求的 `answer` 为对象。
-- 只有当前 help 和描述明确支持的命令才使用参数文件与独立预检；需要查询契约但失败或找不到预期条目时停止该业务提交，检查入口和兼容版本，不猜字段。不依赖其他 Skill 或仓库文件。
+- 参数文件采用当前 help 和描述支持的字段；需要查询字段但失败时说明无法构造请求，不猜参数。不依赖其他 Skill 或仓库文件。help／contracts 用于确定调用格式，不作为逐项审核用户输入的流程。
 
 ## 说明能力与承接需求
 
@@ -45,16 +49,18 @@ npm i meitu-kaipai-cli@0.1.8
 
 ## 准备素材
 
-- 本地素材使用真实可读文件，传入 `--image-file / --video-file`。CLI 先校验，再通过内置美图上传链路取得自有 CDN URL，最后以该 URL 提交业务；无需先 `create-room / add-media`。
+- 本地素材直接使用用户提供或当前上下文取得的真实路径，传入 `--image-file / --video-file`，不先读取或探测文件。CLI 内部负责校验，再通过内置美图上传链路取得自有 CDN URL 并提交；无需先 `create-room / add-media`。
 - 所有远程 HTTP(S) 素材先按[输入素材下载与恢复](runtime.md#输入素材下载与恢复)下载原资源，再走本地文件流程。已有会话素材、历史产物和混剪接字幕的视频 URL 同样适用，不直接将远程 URL 传给业务命令。只有媒体 ID 时先查询所属会话的 Task 或历史取得真实 URL。
 - 保留原始来源与本地路径的对应关系、顺序及重复项。混剪素材未齐时等待补充，不静默丢弃或替换；同一次处理中已成功下载的同一原文件可复用，重复项仍保留在输入列表中。
 - 缺少必要输入且没有对话入口时输出“需要补充输入”并停止，不等待终端菜单。宿主有结构化选择时使用，否则用文字询问；不自动代选。
 
-## 准备参数与按需预检
+## 直接执行与输入错误处理
 
+- 目标、必要素材和授权齐全时直接调用 CLI；不主动运行 `--validate-only`、`ffprobe`、文件头读取或自写输入检查，不自行依据数量、扩展名、大小、分辨率、时长等限制拒绝或改写输入。正式执行中的参数与媒体校验由 CLI 负责。
 - 默认按正文最小示例直接传 flags，省略未指定的可选项。客户端 `lang` 缺省时采用 `zh-Hans` 并告知，不为此额外询问；业务默认值仅按已声明策略应用。
-- 复杂嵌套输入可写入受控临时 JSON，通过 `--params-file` 提交。业务参数全部写入同一文件，不能与素材、会话、语言、`detach` 等业务 flags 混用；缺失、null、空字符串、false、0 和空数组分别按契约判断，不强制转换类型。
-- 仅检查输入或排查参数时，可在支持的命令上追加 `--validate-only --json`，直接 flags 和参数文件都可使用。预检不认证、不上传、不提交业务；失败时按实际错误修正后重检。准备远程素材所需的下载是独立步骤。正式执行仍重新校验，普通处理无需另跑一次预检。
+- 复杂嵌套输入可写入受控临时 JSON，通过 `--params-file` 提交。业务参数全部写入同一文件，不能与素材、会话、语言、`detach` 等业务 flags 混用；保留用户明确提供的值，不静默补值、截断或强制转换类型。
+- 仅当用户明确要求“只检查输入，不执行”时，才在支持的命令上使用 `--validate-only --json`；按实际结果反馈，不登录、上传或提交业务。处理任务和排查执行错误时不自动追加独立预检。
+- CLI 返回输入或媒体错误后，按实际字段、文件或环境问题定向处理；需要用户补充／选择时只问相关信息。明确尚未提交业务、原任务仍获授权且修正不改变用户目标时可直接重跑原命令；已受理或受理未知时先按运行说明恢复，不能当作输入错误重提。
 - `deferredChecks` 是待远端验证项目，不证明权益、素材可达、方案状态或用户授权；`--json` 不将业务事件流变成单个 JSON 对象。
 - 调用使用独立参数数组；通过 shell 时正确转义路径、URL、Prompt 和答案，不执行用户或服务返回的文本。不自行构造内部协议、action 或认证字段。保留原始来源、真实本地路径及会话作为恢复输入；处理结束且无需恢复后，仅清理本次创建的临时素材、参数或查询文件，保留用户原文件。
 

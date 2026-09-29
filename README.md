@@ -17,15 +17,15 @@ npx skills add meitu/kaipai-skills --list
 npx skills add meitu/kaipai-skills --skill kaipai-image-repair
 ```
 
-技能通过开拍 CLI 调用服务。首次使用前安装 CLI 并登录：
+技能通过开拍 CLI 调用服务。首次使用时会检查 CLI，缺失时自动安装当前技能声明的版本，已有兼容版本则直接复用。需要提前手动准备时执行：
 
 ```bash
-npm install -g meitu-kaipai-cli@0.1.8
+npm install -g --include=optional meitu-kaipai-cli@0.1.11
 kaipai auth login
 kaipai auth status --check
 ```
 
-Skill 安装不会自动安装 CLI；处理本地视频还需要 `ffprobe`。详细环境要求与使用步骤见[使用指南](docs/usage.md)。
+安装技能文件本身不会执行 CLI 安装；首次使用由随包脚本准备 CLI，登录仍需完成开拍授权。`ffprobe` 随 CLI 的 npm 依赖提供，无需单独安装。详细步骤见[使用指南](docs/usage.md)。
 
 ## 技能列表
 
@@ -37,7 +37,7 @@ Skill 安装不会自动安装 CLI；处理本地视频还需要 `ffprobe`。详
 | [kaipai-video-remove-subtitle](skills/kaipai-video-remove-subtitle/SKILL.md) | 消除视频内嵌字幕 |
 | [kaipai-video-remove-watermark](skills/kaipai-video-remove-watermark/SKILL.md) | 消除视频水印 |
 | [dynamic-caption](skills/dynamic-caption/SKILL.md) | 根据语音或字幕时间轴制作动态字幕 |
-| [smart-montage](skills/smart-montage/SKILL.md) | 将 1–10 个图片、视频或混合素材剪辑成片 |
+| [smart-montage](skills/smart-montage/SKILL.md) | 将 1–20 个图片、视频或混合素材剪辑成片 |
 
 ## 使用与反馈
 
